@@ -1,0 +1,10 @@
+# Build output and IDE state
+.gradle/
+build/
+.kotlin/
+target/
+out/
+.idea/
+*.iml
+.vscode/
+.DS_Store

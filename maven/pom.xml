@@ -11,7 +11,7 @@
 
   <name>Telesphorepo Maven clients</name>
   <description>Maven core extension and plugin that publish to Telesphorepo with short-lived publish sessions.</description>
-  <url>https://github.com/Telesphorepo/Telesphorepo</url>
+  <url>https://github.com/Telesphorepo/clients</url>
 
   <licenses>
     <license>
@@ -27,9 +27,9 @@
     </developer>
   </developers>
   <scm>
-    <connection>scm:git:https://github.com/Telesphorepo/Telesphorepo.git</connection>
-    <developerConnection>scm:git:git@github.com:Telesphorepo/Telesphorepo.git</developerConnection>
-    <url>https://github.com/Telesphorepo/Telesphorepo</url>
+    <connection>scm:git:https://github.com/Telesphorepo/clients.git</connection>
+    <developerConnection>scm:git:git@github.com:Telesphorepo/clients.git</developerConnection>
+    <url>https://github.com/Telesphorepo/clients</url>
   </scm>
 
   <modules>

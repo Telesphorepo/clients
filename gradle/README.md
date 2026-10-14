@@ -73,7 +73,7 @@ With no proof, a publish fails with `run ./gradlew telesphorepoLogin`.
 ## Build
 
 ```sh
-gradle build                 # in clients/gradle
+gradle build                 # in gradle/
 gradle publishToMavenLocal   # try a local build in another project through mavenLocal()
 ```
 

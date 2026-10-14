@@ -82,7 +82,7 @@ whole reactor must finish within that time.
 ## Build the clients
 
 ```sh
-mvn -f clients/maven install
+mvn -f maven install
 ```
 
 `mvn deploy -DaltDeploymentRepository=release::<url>` publishes to a Maven repository such as

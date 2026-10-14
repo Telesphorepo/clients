@@ -1,0 +1,72 @@
+# Builds both clients on every push and pull request. A push to main also publishes
+# snapshots to the Nexus snapshot repository.
+#
+# Repository secrets (snapshot jobs): NEXUS_USERNAME, NEXUS_PASSWORD.
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  NEXUS_SNAPSHOTS_URL: https://nexus.telesphoreo.me/repository/gradle-plugins-snapshots/
+
+jobs:
+  gradle:
+    name: Gradle plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.8.1"
+      - name: Build
+        working-directory: gradle
+        run: gradle --no-daemon --console=plain build
+      - name: Publish snapshot
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: gradle
+        env:
+          NEXUS_MAVEN_URL: ${{ env.NEXUS_SNAPSHOTS_URL }}
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        # gradle.properties holds a -SNAPSHOT version, so build.gradle.kts adds the repository
+        # "snapshot" from NEXUS_MAVEN_URL.
+        run: gradle --no-daemon --console=plain publishAllPublicationsToSnapshotRepository
+
+  maven:
+    name: Maven extension and plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          # Writes ~/.m2/settings.xml with the server "snapshot" for the deploy step.
+          server-id: snapshot
+          server-username: NEXUS_USERNAME
+          server-password: NEXUS_PASSWORD
+      - name: Build
+        working-directory: maven
+        run: mvn -B -ntp package
+      - name: Publish snapshot
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: maven
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: |
+          # The pom holds the next release version. Snapshots use that version plus -SNAPSHOT.
+          version="$(mvn -B -ntp -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          mvn -B -ntp org.codehaus.mojo:versions-maven-plugin:2.18.0:set -DnewVersion="${version%-SNAPSHOT}-SNAPSHOT" -DgenerateBackupPoms=false
+          mvn -B -ntp deploy -DskipTests -DaltDeploymentRepository="snapshot::${NEXUS_SNAPSHOTS_URL}"

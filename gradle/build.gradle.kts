@@ -11,8 +11,8 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 gradlePlugin {
-    website = "https://github.com/Telesphorepo/Telesphorepo/tree/main/clients/gradle"
-    vcsUrl = "https://github.com/Telesphorepo/Telesphorepo"
+    website = "https://github.com/Telesphorepo/clients/tree/main/gradle"
+    vcsUrl = "https://github.com/Telesphorepo/clients"
     plugins {
         create("telesphorepo") {
             id = "com.telesphorepo"
@@ -31,7 +31,7 @@ publishing {
         pom {
             name = "Telesphorepo Gradle plugin"
             description = "Gradle settings plugin that publishes to a Telesphorepo server with short-lived publish sessions."
-            url = "https://github.com/Telesphorepo/Telesphorepo/tree/main/clients/gradle"
+            url = "https://github.com/Telesphorepo/clients/tree/main/gradle"
             licenses {
                 license {
                     name = "MIT"
@@ -46,38 +46,26 @@ publishing {
                 }
             }
             scm {
-                connection = "scm:git:https://github.com/Telesphorepo/Telesphorepo.git"
-                developerConnection = "scm:git:git@github.com:Telesphorepo/Telesphorepo.git"
-                url = "https://github.com/Telesphorepo/Telesphorepo"
+                connection = "scm:git:https://github.com/Telesphorepo/clients.git"
+                developerConnection = "scm:git:git@github.com:Telesphorepo/clients.git"
+                url = "https://github.com/Telesphorepo/clients"
             }
         }
     }
     repositories {
-        // The release workflow sets these variables. The repository publishes the plugin and its
-        // marker artifact (com.telesphorepo:com.telesphorepo.gradle.plugin).
-        val releaseUrl = providers.environmentVariable("NEXUS_MAVEN_URL")
-        if (releaseUrl.isPresent) {
+        // The workflows set these variables. A final version goes to the repository "release"
+        // and a -SNAPSHOT version goes to the repository "snapshot", both at NEXUS_MAVEN_URL. A
+        // release build publishes the plugin and its marker artifact
+        // (com.telesphorepo:com.telesphorepo.gradle.plugin).
+        val nexusUrl = providers.environmentVariable("NEXUS_MAVEN_URL")
+        if (nexusUrl.isPresent) {
             maven {
-                name = "release"
-                url = uri(releaseUrl.get())
+                name = if (project.version.toString().endsWith("-SNAPSHOT")) "snapshot" else "release"
+                url = uri(nexusUrl.get())
                 credentials {
                     username = providers.environmentVariable("NEXUS_USERNAME").orNull
                     password = providers.environmentVariable("NEXUS_PASSWORD").orNull
                 }
-            }
-        }
-    }
-}
-
-// A release has a final version, which the workflow takes from the tag.
-// The task name ends in "ToReleaseRepository"; the repository itself is not set yet when
-// configureEach runs.
-tasks.withType<PublishToMavenRepository>().configureEach {
-    if (name.endsWith("ToReleaseRepository")) {
-        val publishVersion = project.version.toString()
-        doFirst {
-            check(!publishVersion.endsWith("-SNAPSHOT")) {
-                "Release builds need a final version. Pass -Pversion=<version>."
             }
         }
     }
