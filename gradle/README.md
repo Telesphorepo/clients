@@ -46,6 +46,9 @@ With `repository` set, each project with the `java` or `java-platform` plugin ge
   publication of its own. A `java-gradle-plugin` project keeps the publications that
   `java-gradle-plugin` makes.
 
+The plugin adds these after Gradle evaluates all projects, so a repository or a publication that a
+build file adds in `afterEvaluate` also counts.
+
 To keep one project out of publishing, add this to its build file:
 
 ```kotlin

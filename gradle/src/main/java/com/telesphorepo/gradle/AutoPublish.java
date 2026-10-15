@@ -12,8 +12,8 @@ import java.net.URI;
 /**
  * Publishes each Java project to {@code telesphorepo.repository} with no publishing block in the
  * build file. A project with the {@code java} or {@code java-platform} plugin gets
- * {@code maven-publish}. After the build file has run, each project with {@code maven-publish}
- * gets:
+ * {@code maven-publish}. After Gradle evaluates every project, each project with
+ * {@code maven-publish} gets:
  * <ul>
  *   <li>the repository {@code telesphorepo} at {@code <url>/maven/<repository>}, unless the
  *       build file declares a repository on the server itself;</li>
@@ -39,13 +39,12 @@ final class AutoPublish {
         PluginManager plugins = project.getPluginManager();
         plugins.withPlugin("java", p -> plugins.apply("maven-publish"));
         plugins.withPlugin("java-platform", p -> plugins.apply("maven-publish"));
-        plugins.withPlugin("maven-publish", p -> {
-            if (project.getState().getExecuted()) {
-                configure(project, base, target);
-            } else {
-                project.afterEvaluate(pr -> configure(pr, base, target));
-            }
-        });
+        // Decide after the afterEvaluate callbacks of every project, so a publication or
+        // repository that a build file adds in afterEvaluate counts. maven-publish adds the
+        // publish tasks of each publication and repository from live callbacks on the publishing
+        // containers, so the tasks exist before the task graph is ready.
+        project.getGradle().projectsEvaluated(g ->
+            plugins.withPlugin("maven-publish", p -> configure(project, base, target)));
     }
 
     private static void configure(Project project, URI base, URI target) {

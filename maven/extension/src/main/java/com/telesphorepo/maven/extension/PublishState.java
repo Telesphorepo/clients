@@ -26,8 +26,13 @@ public class PublishState {
     private volatile Publisher publisher;
 
     void configure(ServerUrl server, String oidcTokenEnv) {
-        // A warning, so that the approval link shows also with -q.
-        publisher = new Publisher(server, oidcTokenEnv, System.getenv(), line -> log.warn("Telesphorepo: {}", line));
+        // Straight to stderr, so that the approval link and code show also with -q.
+        publisher = new Publisher(server, oidcTokenEnv, System.getenv(), PublishState::prompt);
+    }
+
+    private static void prompt(String line) {
+        System.err.println("Telesphorepo: " + line);
+        System.err.flush();
     }
 
     /** The configured server, or null when the build sets no telesphorepo.url. */

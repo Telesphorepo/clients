@@ -126,15 +126,21 @@ with the ID `telesphorepo-id-token` and the audience `https://repo.acme.com`.
 ```groovy
 withCredentials([string(credentialsId: 'telesphorepo-id-token', variable: 'OIDC_TOKEN')]) {
   sh '''
+    set +x
     SESSION=$(curl -sSf https://repo.acme.com/api/publish/sessions/oidc \
       -H 'Content-Type: application/json' \
       -d "{\\"token\\":\\"$OIDC_TOKEN\\",\\"repo\\":\\"releases\\"}")
     TOKEN=$(echo "$SESSION" | jq -r .token)
+    ID=$(echo "$SESSION" | jq -r .id)
+    trap 'curl -sSf -X DELETE -u "ci:$TOKEN" "https://repo.acme.com/api/publish/sessions/$ID"' EXIT
     curl -sSf -u "ci:$TOKEN" -T app-1.0.jar \
       https://repo.acme.com/maven/releases/com/acme/app/1.0/app-1.0.jar
   '''
 }
 ```
+
+Jenkins prints each command of an `sh` step. `set +x` keeps the session token out of the build
+log. The `trap` ends the session also when the upload fails.
 
 With the Gradle plugin, set `oidcTokenEnv = "OIDC_TOKEN"` instead and run the publish inside
 `withCredentials`. With the Maven extension, run `mvn -B deploy -Dtelesphorepo.oidcTokenEnv=OIDC_TOKEN`

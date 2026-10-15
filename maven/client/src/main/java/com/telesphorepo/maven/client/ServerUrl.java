@@ -41,7 +41,11 @@ public final class ServerUrl {
         return scheme + "://" + host + (port < 0 ? "" : ":" + port) + path;
     }
 
-    /** The host, plus "_" and the port when the URL names one, even 443: the directory under ~/.telesphorepo. */
+    /**
+     * The directory under ~/.telesphorepo: the host without IPv6 brackets, plus "_" and the port
+     * when the URL names one, even 443. Each character other than a-z, 0-9, ".", "_" and "-"
+     * becomes "_". The Gradle plugin's {@code DeviceKey.hostDir} uses the same mapping.
+     */
     public String hostDir() {
         String h = host.replace("[", "").replace("]", "");
         String dir = namedPort < 0 ? h : h + "_" + namedPort;

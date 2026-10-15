@@ -44,15 +44,21 @@ public class LoginMojo extends AbstractMojo {
         String name = deviceName != null && !deviceName.isBlank() ? deviceName.trim() : DeviceLogin.defaultName();
         Api api = new Api(server);
         try {
-            DeviceKey device = DeviceLogin.accepted(api, line -> getLog().info(line));
+            DeviceKey device = DeviceLogin.accepted(api, LoginMojo::prompt);
             if (device != null) {
                 getLog().info("This computer is already enrolled as device " + device.deviceId() + " for " + server
                         + ". Its key is in " + DeviceKey.file(server));
                 return;
             }
-            DeviceLogin.enroll(api, name, "maven", line -> getLog().info(line));
+            DeviceLogin.enroll(api, name, "maven", LoginMojo::prompt);
         } catch (IOException e) {
             throw new MojoExecutionException("Telesphorepo login failed: " + e.getMessage(), e);
         }
+    }
+
+    /** Writes a line of the enrollment straight to stderr, so that the approval link and code show also with -q. */
+    private static void prompt(String line) {
+        System.err.println(line);
+        System.err.flush();
     }
 }

@@ -47,13 +47,20 @@ final class DeviceKey {
         this.key = key;
     }
 
-    /** The device file for the server at base. The directory is the host, plus "_port" when the URL names a port. */
+    /** The device file for the server at base, in {@link #hostDir}. */
     static Path file(URI base) {
-        String host = base.getHost().toLowerCase(Locale.ROOT);
-        if (base.getPort() != -1) {
-            host += "_" + base.getPort();
-        }
-        return Paths.get(System.getProperty("user.home"), ".telesphorepo", host, "device.json");
+        return Paths.get(System.getProperty("user.home"), ".telesphorepo", hostDir(base), "device.json");
+    }
+
+    /**
+     * The host without IPv6 brackets, plus "_" and the port when the URL names one, even 443. Each
+     * character other than a-z, 0-9, ".", "_" and "-" becomes "_". The Maven client's
+     * {@code ServerUrl.hostDir()} uses the same mapping, so both clients share one device key.
+     */
+    static String hostDir(URI base) {
+        String h = base.getHost().toLowerCase(Locale.ROOT).replace("[", "").replace("]", "");
+        String dir = base.getPort() < 0 ? h : h + "_" + base.getPort();
+        return dir.replaceAll("[^a-z0-9._-]", "_");
     }
 
     static KeyPair generate() {

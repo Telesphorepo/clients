@@ -10,13 +10,18 @@ import org.gradle.api.services.BuildServiceParameters;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Mints one publish session per repository on first use and closes every session it minted when
- * the build ends. The proof is, in order: a GitHub Actions identity token, the identity token in
+ * Mints one publish session per repository on first use, mints it again when it has less than a
+ * minute left, and closes every session it minted when the build ends. The proof is, in order: a GitHub Actions identity token, the identity token in
  * the environment variable named by {@code telesphorepo.oidcTokenEnv}, the device key of this
  * computer. Outside CI, a build with no accepted device enrolls one and waits for the approval.
  */
@@ -32,17 +37,25 @@ public abstract class TelesphorepoService implements BuildService<TelesphorepoSe
         Property<String> getOidcTokenEnv();
     }
 
+    /** A session is minted again when the cached one has less than this left. */
+    private static final long MIN_REMAINING_SECONDS = 60;
+
     private static final class Session {
         final String id;
         final String token;
+        final String repo;
+        final long expiresAt;
 
-        Session(String id, String token) {
+        Session(String id, String token, String repo, long expiresAt) {
             this.id = id;
             this.token = token;
+            this.repo = repo;
+            this.expiresAt = expiresAt;
         }
     }
 
-    private final Map<String, Session> sessions = new ConcurrentHashMap<>();
+    private final Map<String, Session> current = new HashMap<>();
+    private final List<Session> minted = new ArrayList<>();
     private volatile Api api;
     private DeviceKey device;
 
@@ -95,9 +108,16 @@ public abstract class TelesphorepoService implements BuildService<TelesphorepoSe
         return "https".equalsIgnoreCase(u.getScheme()) ? 443 : 80;
     }
 
-    /** Returns the session token for repo, minting a session on the first call in this build. */
-    String token(String repo) {
-        return sessions.computeIfAbsent(repo, this::mint).token;
+    /** Returns the session token for repo, minting a session when there is none or it ends soon. */
+    synchronized String token(String repo) {
+        Session s = current.get(repo);
+        if (s != null && s.expiresAt - Instant.now().getEpochSecond() > MIN_REMAINING_SECONDS) {
+            return s.token;
+        }
+        s = mint(repo);
+        current.put(repo, s);
+        minted.add(s);
+        return s.token;
     }
 
     private Session mint(String repo) {
@@ -126,7 +146,24 @@ public abstract class TelesphorepoService implements BuildService<TelesphorepoSe
             throw new GradleException("The server's publish session answer has no id or token");
         }
         LOG.lifecycle("Telesphorepo: publish session {} for {} ({})", id, repo, via);
-        return new Session(id, token);
+        return new Session(id, token, repo, epochSeconds(resp.get("expires_at")));
+    }
+
+    /** Reads expires_at as unix seconds, unix milliseconds or an RFC 3339 time. */
+    private static long epochSeconds(Object v) {
+        if (v instanceof Number) {
+            long n = ((Number) v).longValue();
+            return n > 100_000_000_000L ? n / 1000 : n;
+        }
+        if (v instanceof String) {
+            try {
+                return OffsetDateTime.parse((String) v).toEpochSecond();
+            } catch (DateTimeParseException e) {
+                // Fall through to the minimum lifetime below.
+            }
+        }
+        // An unreadable expiry: reuse the session for at most two minutes.
+        return Instant.now().getEpochSecond() + MIN_REMAINING_SECONDS * 2;
     }
 
     /**
@@ -205,15 +242,20 @@ public abstract class TelesphorepoService implements BuildService<TelesphorepoSe
 
     /** Ends every session this build minted. A failure is a warning: the session expires anyway. */
     @Override
-    public void close() {
-        for (Map.Entry<String, Session> e : sessions.entrySet()) {
-            Session s = e.getValue();
+    public synchronized void close() {
+        for (Session s : minted) {
             try {
                 api().delete("/api/publish/sessions/" + URLEncoder.encode(s.id, StandardCharsets.UTF_8), SESSION_USER, s.token);
+            } catch (Api.ApiException ex) {
+                // The session already ended (expired or revoked): nothing is left to close.
+                if (ex.status != 401 && ex.status != 404) {
+                    LOG.warn("Telesphorepo: could not close publish session {} for {}: {}", s.id, s.repo, ex.getMessage());
+                }
             } catch (RuntimeException ex) {
-                LOG.warn("Telesphorepo: could not close publish session {} for {}: {}", s.id, e.getKey(), ex.getMessage());
+                LOG.warn("Telesphorepo: could not close publish session {} for {}: {}", s.id, s.repo, ex.getMessage());
             }
         }
-        sessions.clear();
+        minted.clear();
+        current.clear();
     }
 }
