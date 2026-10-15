@@ -16,7 +16,7 @@ tasks.withType<JavaCompile>().configureEach {
 // The plugin-publish plugin adds the sources and javadoc jars, publishes to the Gradle Plugin
 // Portal with publishPlugins, and signs every publication when a signing key is configured.
 gradlePlugin {
-    website = "https://github.com/Telesphorepo/clients/tree/main/gradle"
+    website = "https://docs.telesphorepo.com"
     vcsUrl = "https://github.com/Telesphorepo/clients"
     plugins {
         create("telesphorepo") {
