@@ -16,7 +16,8 @@ set -euo pipefail
 
 REPO="Telesphorepo/clients"
 UID_NAME="Telesphorepo"
-KEYSERVER="keyserver.ubuntu.com"
+# The keyservers that Central supports (central.sonatype.org/publish/requirements/gpg/).
+KEYSERVERS=(keyserver.ubuntu.com keys.openpgp.org pgp.mit.edu)
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 bold() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -41,6 +42,20 @@ hidden() { # hidden PROMPT VAR: read a value at a hidden prompt
   echo
   [[ -n $v ]] || fail "Nothing entered."
   printf -v "$2" '%s' "$v"
+}
+
+send_public_key() { # send_public_key FINGERPRINT: to every keyserver; one success is enough
+  local ok=0
+  for ks in "${KEYSERVERS[@]}"; do
+    if gpg --keyserver "$ks" --send-keys "$1" >/dev/null 2>&1; then
+      info "Sent the public key to $ks."
+      ok=1
+    else
+      info "Could not reach $ks. The other keyservers are enough."
+    fi
+  done
+  [[ $ok == 1 ]] || fail "No keyserver took the public key. Check the network and run this again."
+  info "keys.openpgp.org may email you to confirm the address. That is optional."
 }
 
 # ---------------------------------------------------------------- environments
@@ -81,8 +96,7 @@ signing_key() {
     hidden "Passphrase of that key" pass
   fi
 
-  info "Sending the public key to $KEYSERVER ..."
-  gpg --keyserver "$KEYSERVER" --send-keys "$fpr"
+  send_public_key "$fpr"
 
   local key
   key=$(printf '%s' "$pass" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 \
@@ -111,8 +125,7 @@ renew_key() {
   hidden "Passphrase of that key" pass
   printf '%s' "$pass" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --quick-set-expire "$fpr" 3y
   info "The key now expires in 3 years."
-  info "Sending the renewed public key to $KEYSERVER ..."
-  gpg --keyserver "$KEYSERVER" --send-keys "$fpr"
+  send_public_key "$fpr"
   local key
   key=$(printf '%s' "$pass" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 \
     --armor --export-secret-keys "$fpr") || fail "gpg refused the passphrase."
