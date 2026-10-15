@@ -73,8 +73,7 @@ cd maven && mvn package       # the Maven client library, extension and plugin
 
 A tag `v<version>` (for example `v0.2.0`) runs `.github/workflows/release.yml`. The version
 comes from the tag and must be final (no `-SNAPSHOT`). The workflow publishes both clients to
-`https://nexus.telesphoreo.me/repository/gradle-plugins-releases/`. The repository secrets
-`NEXUS_USERNAME` and `NEXUS_PASSWORD` give the credentials.
+`https://nexus.telesphoreo.me/repository/gradle-plugins-releases/`. The GitHub environment`n`Nexus` gives the credentials: the variable `NEXUS_USERNAME` and the secret `NEXUS_PASSWORD`.
 
 A push to `main` runs `.github/workflows/ci.yml`. It builds both clients and publishes
 snapshots to `https://nexus.telesphoreo.me/repository/gradle-plugins-snapshots/`.

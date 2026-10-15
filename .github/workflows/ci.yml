@@ -1,7 +1,7 @@
 # Builds both clients on every push and pull request. A push to main also publishes
 # snapshots to the Nexus snapshot repository.
 #
-# Repository secrets (snapshot jobs): NEXUS_USERNAME, NEXUS_PASSWORD.
+# Environment "Nexus" (snapshot jobs): variable NEXUS_USERNAME, secret NEXUS_PASSWORD.
 name: ci
 
 on:
@@ -18,6 +18,7 @@ env:
 jobs:
   gradle:
     name: Gradle plugin
+    environment: Nexus
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,7 +37,7 @@ jobs:
         working-directory: gradle
         env:
           NEXUS_MAVEN_URL: ${{ env.NEXUS_SNAPSHOTS_URL }}
-          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_USERNAME: ${{ vars.NEXUS_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         # gradle.properties holds a -SNAPSHOT version, so build.gradle.kts adds the repository
         # "snapshot" from NEXUS_MAVEN_URL.
@@ -44,6 +45,7 @@ jobs:
 
   maven:
     name: Maven extension and plugin
+    environment: Nexus
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -63,7 +65,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: maven
         env:
-          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_USERNAME: ${{ vars.NEXUS_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
           # The pom holds the next release version. Snapshots use that version plus -SNAPSHOT.
