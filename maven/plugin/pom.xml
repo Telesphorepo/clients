@@ -14,7 +14,7 @@
   <packaging>maven-plugin</packaging>
 
   <name>Telesphorepo Maven plugin</name>
-  <description>Goal telesphorepo:login enrolls this machine as a Telesphorepo publishing device.</description>
+  <description>Goal login approves this computer as a Telesphorepo publishing device without a deploy.</description>
 
   <prerequisites>
     <maven>3.9.0</maven>

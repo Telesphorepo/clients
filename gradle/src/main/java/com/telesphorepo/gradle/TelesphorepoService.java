@@ -17,7 +17,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Mints one publish session per repository on first use and closes every session it minted when
  * the build ends. The proof is, in order: a GitHub Actions identity token, the identity token in
- * the environment variable named by {@code telesphorepo.oidcTokenEnv}, the enrolled device key.
+ * the environment variable named by {@code telesphorepo.oidcTokenEnv}, the device key of this
+ * computer. Outside CI, a build with no accepted device enrolls one and waits for the approval.
  */
 public abstract class TelesphorepoService implements BuildService<TelesphorepoService.Params>, AutoCloseable {
     /** The HTTP Basic username sent with a session token. The server ignores it. */
@@ -43,6 +44,7 @@ public abstract class TelesphorepoService implements BuildService<TelesphorepoSe
 
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
     private volatile Api api;
+    private DeviceKey device;
 
     private Api api() {
         Api a = api;
@@ -108,13 +110,13 @@ public abstract class TelesphorepoService implements BuildService<TelesphorepoSe
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("token", oidc);
             body.put("repo", repo);
-            resp = a.post("/api/publish/sessions/oidc", body);
-        } else {
-            DeviceKey device = DeviceKey.load(a.base);
-            if (device == null) {
-                throw new GradleException("No Telesphorepo credential to publish to " + a.base + "/maven/" + repo
-                    + ": run ./gradlew telesphorepoLogin");
+            try {
+                resp = a.post("/api/publish/sessions/oidc", body);
+            } catch (Api.ApiException e) {
+                throw e.status == 404 ? noRepo(a, repo, e) : e;
             }
+        } else {
+            DeviceKey device = device(a);
             via = "device " + device.deviceId;
             resp = mintWithDevice(a, device, repo);
         }
@@ -127,14 +129,30 @@ public abstract class TelesphorepoService implements BuildService<TelesphorepoSe
         return new Session(id, token);
     }
 
+    /**
+     * Returns this computer's device, once per build. When the server accepts no saved device, a
+     * build on a developer's computer enrolls one now and waits for the approval. A CI build
+     * fails with what the job must add.
+     */
+    private synchronized DeviceKey device(Api a) {
+        if (device != null) {
+            return device;
+        }
+        DeviceKey d = DeviceLogin.accepted(a, LOG);
+        if (d == null) {
+            Map<String, String> env = System.getenv();
+            if (Ci.detected(env)) {
+                throw new GradleException(Ci.noToken(env, getParameters().getOidcTokenEnv().getOrNull(), a.base));
+            }
+            d = DeviceLogin.enroll(a, LOG);
+        }
+        device = d;
+        return d;
+    }
+
     private static Map<String, Object> mintWithDevice(Api a, DeviceKey device, String repo) {
         try {
-            Map<String, Object> challenge = new LinkedHashMap<>();
-            challenge.put("device_id", device.deviceId);
-            String nonce = Json.string(a.post("/api/publish/challenge", challenge), "nonce");
-            if (nonce == null) {
-                throw new GradleException("The server's challenge answer has no nonce");
-            }
+            String nonce = DeviceLogin.challenge(a, device);
             String msg = "telesphorepo publish v1\n" + nonce + "\n" + device.deviceId + "\n" + repo;
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("device_id", device.deviceId);
@@ -143,12 +161,20 @@ public abstract class TelesphorepoService implements BuildService<TelesphorepoSe
             body.put("signature", device.sign(msg));
             return a.post("/api/publish/sessions", body);
         } catch (Api.ApiException e) {
-            if (e.status == 401 || e.status == 404) {
-                throw new GradleException("The server refused device " + device.deviceId + " (" + e.error
-                    + "). It may be revoked or expired: run ./gradlew telesphorepoLogin", e);
+            if (e.status == 404) {
+                throw noRepo(a, repo, e);
+            }
+            if (e.status == 401) {
+                throw new GradleException("The server refused device " + device.deviceId + " (" + e.error + "). Delete "
+                    + DeviceKey.file(a.base) + " and publish again to approve this computer again.", e);
             }
             throw e;
         }
+    }
+
+    private static GradleException noRepo(Api a, String repo, Api.ApiException e) {
+        return new GradleException("The repository \"" + repo + "\" does not exist on " + a.base
+            + ". Check the repository name in settings.gradle(.kts), or the URL of the publishing repository.", e);
     }
 
     /** Returns a CI identity token from GitHub Actions or from oidcTokenEnv, or null when there is none. */

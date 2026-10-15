@@ -6,84 +6,85 @@ session**: a short-lived token that the server gives for one repository. Passwor
 tokens can only read. These clients get a session for you, so no long-lived password is in a
 build or in CI.
 
-| Client | Coordinates | Directory | Setup |
-|---|---|---|---|
-| Gradle settings plugin | plugin id `com.telesphorepo` | [`gradle/`](gradle/README.md) | `./gradlew telesphorepoLogin` once |
-| Maven core extension | `com.telesphorepo:telesphorepo-maven-extension` | [`maven/`](maven/README.md) | `mvn telesphorepo:login` once |
-| Maven plugin (`login` goal) | `com.telesphorepo:telesphorepo-maven-plugin` | [`maven/`](maven/README.md) | |
+| Client | Coordinates | Directory |
+|---|---|---|
+| Gradle settings plugin | plugin id `com.telesphorepo.publish` | [`gradle/`](gradle/README.md) |
+| Maven core extension | `com.telesphorepo:telesphorepo-maven-extension` | [`maven/`](maven/README.md) |
+| Maven plugin (`login` goal, optional) | `com.telesphorepo:telesphorepo-maven-plugin` | [`maven/`](maven/README.md) |
 
-In CI, the clients use the CI's identity token (OIDC). An admin must add a **trust policy** on
-the server's **Trust policies** page. The policy names the issuer, the claims and the
+On a developer's computer, the first publish asks you to approve the computer in the browser.
+The client prints the link, opens it, waits for the approval and then publishes. Later publishes
+use the saved device key.
+
+In CI, the clients use the CI's identity token (OIDC). An admin must add a **CI pipeline** on
+the server's **Settings › CI pipelines** page. The pipeline names the CI, the jobs and the
 repositories.
 
 ## Get the clients
 
-The clients are on the Nexus repositories of the project:
+Releases are on the Gradle Plugin Portal (the Gradle plugin) and on Maven Central (the Maven
+extension and plugin). Builds find them with no extra repository.
 
-- Releases: `https://nexus.telesphoreo.me/repository/gradle-plugins-releases/`
-- Snapshots: `https://nexus.telesphoreo.me/repository/gradle-plugins-snapshots/`
-
-The Gradle Plugin Portal and Maven Central do not have them yet.
-
-Gradle, in `settings.gradle.kts`, before the `plugins` block:
+Snapshots of `main` are on the Maven Central snapshot repository
+`https://central.sonatype.com/repository/maven-snapshots/` (all clients, kept 90 days). Gradle,
+in `settings.gradle.kts`, before the `plugins` block:
 
 ```kotlin
 pluginManagement {
     repositories {
-        maven {
-            url = uri("https://nexus.telesphoreo.me/repository/gradle-plugins-releases/")
-            // credentials { ... } only when the repository needs a login to read
-        }
+        maven { url = uri("https://central.sonatype.com/repository/maven-snapshots/") }
         gradlePluginPortal()
     }
 }
 ```
 
-Maven, for the extension: add the repository to `~/.m2/settings.xml` in an active profile, and
-declare the extension in `.mvn/extensions.xml` (see [`maven/`](maven/README.md)). A core
-extension resolves from the repositories of `settings.xml`, not from `pom.xml`:
+Maven, for a snapshot of the extension: add the repository to `~/.m2/settings.xml` in an active
+profile. A core extension resolves from the repositories of `settings.xml`, not from `pom.xml`:
 
 ```xml
 <profiles>
   <profile>
-    <id>telesphorepo-clients</id>
+    <id>telesphorepo-snapshots</id>
     <repositories>
-      <repository><id>telesphorepo-clients</id><url>https://nexus.telesphoreo.me/repository/gradle-plugins-releases/</url></repository>
+      <repository>
+        <id>central-snapshots</id>
+        <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+        <releases><enabled>false</enabled></releases>
+        <snapshots><enabled>true</enabled></snapshots>
+      </repository>
     </repositories>
     <pluginRepositories>
-      <pluginRepository><id>telesphorepo-clients</id><url>https://nexus.telesphoreo.me/repository/gradle-plugins-releases/</url></pluginRepository>
+      <pluginRepository>
+        <id>central-snapshots</id>
+        <url>https://central.sonatype.com/repository/maven-snapshots/</url>
+        <releases><enabled>false</enabled></releases>
+        <snapshots><enabled>true</enabled></snapshots>
+      </pluginRepository>
     </pluginRepositories>
   </profile>
 </profiles>
-<activeProfiles><activeProfile>telesphorepo-clients</activeProfile></activeProfiles>
+<activeProfiles><activeProfile>telesphorepo-snapshots</activeProfile></activeProfiles>
 ```
 
-The same `<pluginRepositories>` block works in `pom.xml` for the `telesphorepo:login` plugin.
+The project's Nexus also has every release and snapshot:
+`https://nexus.telesphoreo.me/repository/gradle-plugins-releases/` and
+`https://nexus.telesphoreo.me/repository/gradle-plugins-snapshots/`.
 
 ## Build
 
-JDK 17 is required.
+JDK 17 is required. The wrappers download Gradle and Maven.
 
 ```sh
-cd gradle && gradle build     # the Gradle plugin
-cd maven && mvn package       # the Maven client library, extension and plugin
+cd gradle && ./gradlew build   # the Gradle plugin
+cd maven && ./mvnw package     # the Maven client library, extension and plugin
 ```
 
-## Releases
+## Release
 
-A tag `v<version>` (for example `v0.2.0`) runs `.github/workflows/release.yml`. The version
-comes from the tag and must be final (no `-SNAPSHOT`). The workflow publishes both clients to
-`https://nexus.telesphoreo.me/repository/gradle-plugins-releases/`. The GitHub environment`n`Nexus` gives the credentials: the variable `NEXUS_USERNAME` and the secret `NEXUS_PASSWORD`.
-
-A push to `main` runs `.github/workflows/ci.yml`. It builds both clients and publishes
-snapshots to `https://nexus.telesphoreo.me/repository/gradle-plugins-snapshots/`.
-
-The Gradle build adds a publish repository when the environment variable `NEXUS_MAVEN_URL` is
-set, with the credentials from `NEXUS_USERNAME` and `NEXUS_PASSWORD`. The repository is named
-`release` for a final version and `snapshot` for a `-SNAPSHOT` version.
-
-The workflow has the Plugin Portal and Maven Central jobs as comments. Enable them after
-namespace verification.
+Push a tag `v<version>`, for example `v0.1.0`. CI publishes both clients with the version of the tag.
+GitHub secrets: environment `Nexus` (variable `NEXUS_USERNAME`, secret `NEXUS_PASSWORD`), `PluginPortal`
+(`GRADLE_PUBLISH_KEY`, `GRADLE_PUBLISH_SECRET`, `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`) and `Central`
+(`CENTRAL_TOKEN_USERNAME`, `CENTRAL_TOKEN_PASSWORD`, `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`).
 
 ## Tests
 
@@ -91,6 +92,7 @@ The [Telesphorepo server repository](https://github.com/Telesphorepo/Telesphorep
 clients in its `clients` e2e zone (`go tool task test clients`). The zone builds the clients from
 a clone of this repository (or from `E2E_CLIENTS_DIR`) and uses them against a real server with
 real Gradle and Maven builds. `E2E_CLIENTS_REF` picks the branch or tag.
+
 ## CI without a client
 
 Get a session with two `curl` calls, then use its token as the HTTP Basic password (any
@@ -119,14 +121,14 @@ curl -sSf -X DELETE -u "ci:$TOKEN" \
 ### Jenkins
 
 Install the **OpenID Connect Provider** plugin and add an "OpenID Connect id token" credential
-with the audience `https://repo.acme.com`. The trust policy issuer is `<jenkins url>/oidc`.
+with the ID `telesphorepo-id-token` and the audience `https://repo.acme.com`.
 
 ```groovy
-withCredentials([string(credentialsId: 'telesphorepo-oidc', variable: 'OIDC')]) {
+withCredentials([string(credentialsId: 'telesphorepo-id-token', variable: 'OIDC_TOKEN')]) {
   sh '''
     SESSION=$(curl -sSf https://repo.acme.com/api/publish/sessions/oidc \
       -H 'Content-Type: application/json' \
-      -d "{\\"token\\":\\"$OIDC\\",\\"repo\\":\\"releases\\"}")
+      -d "{\\"token\\":\\"$OIDC_TOKEN\\",\\"repo\\":\\"releases\\"}")
     TOKEN=$(echo "$SESSION" | jq -r .token)
     curl -sSf -u "ci:$TOKEN" -T app-1.0.jar \
       https://repo.acme.com/maven/releases/com/acme/app/1.0/app-1.0.jar
@@ -134,8 +136,9 @@ withCredentials([string(credentialsId: 'telesphorepo-oidc', variable: 'OIDC')]) 
 }
 ```
 
-With the Gradle plugin, set `oidcTokenEnv = "OIDC"` instead and run the build inside
-`withCredentials`.
+With the Gradle plugin, set `oidcTokenEnv = "OIDC_TOKEN"` instead and run the publish inside
+`withCredentials`. With the Maven extension, run `mvn -B deploy -Dtelesphorepo.oidcTokenEnv=OIDC_TOKEN`
+inside it.
 
 A session ends by itself after `publish.session_ttl` (15 minutes by default).
 

@@ -18,8 +18,6 @@ import org.slf4j.LoggerFactory;
 @Named
 @Singleton
 public class PublishState {
-    static final String LOGIN = "mvn telesphorepo:login";
-
     private static final Logger log = LoggerFactory.getLogger(PublishState.class);
 
     private final ThreadLocal<Boolean> deploying = ThreadLocal.withInitial(() -> Boolean.FALSE);
@@ -28,8 +26,8 @@ public class PublishState {
     private volatile Publisher publisher;
 
     void configure(ServerUrl server, String oidcTokenEnv) {
-        String login = LOGIN + " -Dtelesphorepo.url=" + server.base();
-        publisher = new Publisher(server, oidcTokenEnv, System.getenv(), login);
+        // A warning, so that the approval link shows also with -q.
+        publisher = new Publisher(server, oidcTokenEnv, System.getenv(), line -> log.warn("Telesphorepo: {}", line));
     }
 
     /** The configured server, or null when the build sets no telesphorepo.url. */
@@ -38,10 +36,15 @@ public class PublishState {
         return p == null ? null : p.server();
     }
 
-    /** Returns null when a proof of identity is available, else what the developer should do. */
-    String missingProof() {
+    /**
+     * Makes sure that a proof of identity is available. On a developer's computer, this can
+     * enroll the computer and wait for the approval in the browser.
+     */
+    void ensureProof() throws IOException {
         Publisher p = publisher;
-        return p == null ? null : p.missingProof();
+        if (p != null) {
+            p.ensureProof();
+        }
     }
 
     void deployStarted() {

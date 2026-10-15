@@ -8,9 +8,9 @@ import org.gradle.api.provider.Provider;
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository;
 
 /**
- * Runs first in every {@link PublishToMavenRepository} task. When the task's repository is on the
- * configured server, it sets the repository's credentials to the build's publish session for
- * that repository, so a session is minted only when something is about to be published.
+ * Runs first in each {@link PublishToMavenRepository} task that publishes to the configured
+ * server. It sets the repository's credentials to the build's publish session for that
+ * repository, so a session is minted only when something is about to be published.
  */
 final class PublishCredentials implements Action<Task> {
     private final Provider<TelesphorepoService> service;

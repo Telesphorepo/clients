@@ -102,17 +102,17 @@ final class DeviceKey {
             long id = Json.number(m, "device_id", 0);
             String pk = Json.string(m, "private_key");
             if (id <= 0 || pk == null) {
-                throw new GradleException(f + " is not a valid device file. Run ./gradlew telesphorepoLogin");
+                throw new GradleException(f + " is not a valid device file. Delete it and publish again to approve this computer again.");
             }
             PrivateKey key = KeyFactory.getInstance("Ed25519").generatePrivate(new PKCS8EncodedKeySpec(Base64.getDecoder().decode(pk)));
             return new DeviceKey(id, key);
         } catch (IOException | IllegalArgumentException | GeneralSecurityException e) {
-            throw new GradleException("Cannot read " + f + ". Run ./gradlew telesphorepoLogin", e);
+            throw new GradleException("Cannot read " + f + ". Delete it and publish again to approve this computer again.", e);
         }
     }
 
-    /** Writes the device file for base atomically, with owner-only permissions. */
-    static void save(URI base, long deviceId, PrivateKey key) {
+    /** Writes the device file for base atomically, with owner-only permissions, and returns the device. */
+    static DeviceKey save(URI base, long deviceId, PrivateKey key) {
         Path f = file(base);
         Path dir = f.getParent();
         Map<String, Object> m = new LinkedHashMap<>();
@@ -139,6 +139,7 @@ final class DeviceKey {
         } catch (IOException e) {
             throw new GradleException("Cannot write " + f, e);
         }
+        return new DeviceKey(deviceId, key);
     }
 
     private static boolean posix(Path p) {

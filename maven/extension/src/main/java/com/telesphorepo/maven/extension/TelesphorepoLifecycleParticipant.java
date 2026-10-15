@@ -1,6 +1,7 @@
 package com.telesphorepo.maven.extension;
 
 import com.telesphorepo.maven.client.ServerUrl;
+import java.io.IOException;
 import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -18,8 +19,10 @@ import org.slf4j.LoggerFactory;
 /**
  * Sets up publishing for a build. The server comes from the property {@code telesphorepo.url}
  * (-D, then the top-level project), else the environment variable {@code TELESPHOREPO_URL}.
- * Without it the extension does nothing. A deploy to the server with no device key and no CI
- * token fails before the build starts. All sessions close when the build ends.
+ * Without it the extension does nothing. Before a deploy to the server starts, the extension
+ * checks the proof of identity: with no CI token and no device that the server accepts, it
+ * enrolls this computer and waits for the approval, or, in CI, fails with what the job must add.
+ * All sessions close when the build ends.
  */
 @Named("telesphorepo")
 @Singleton
@@ -67,9 +70,10 @@ public class TelesphorepoLifecycleParticipant extends AbstractMavenLifecyclePart
         if (!deploys(session.getGoals()) || !targetsServer(session.getProjects(), server)) {
             return;
         }
-        String missing = state.missingProof();
-        if (missing != null) {
-            throw new MavenExecutionException(missing, top == null ? null : top.getFile());
+        try {
+            state.ensureProof();
+        } catch (IOException e) {
+            throw new MavenExecutionException("Telesphorepo: " + e.getMessage(), top == null ? null : top.getFile());
         }
     }
 

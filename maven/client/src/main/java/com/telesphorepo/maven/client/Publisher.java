@@ -17,8 +17,9 @@ import java.util.function.Consumer;
  * Mints one publish session per Telesphorepo repository and closes them all at the end of the
  * build. The proof of identity is, in this order: the GitHub Actions identity token (when
  * {@code ACTIONS_ID_TOKEN_REQUEST_URL} and {@code ACTIONS_ID_TOKEN_REQUEST_TOKEN} are set), the
- * OIDC token in the environment variable named by {@code oidcTokenEnv}, and the enrolled device
- * key in {@code ~/.telesphorepo/<host>/device.json}.
+ * OIDC token in the environment variable named by {@code oidcTokenEnv}, and the device key of
+ * this computer in {@code ~/.telesphorepo/<host>/device.json}. Outside CI, a build with no
+ * device that the server accepts enrolls one and waits for the approval.
  */
 public final class Publisher {
     /** A session is minted again when the cached one has less than this left. */
@@ -27,20 +28,21 @@ public final class Publisher {
     private final ServerUrl server;
     private final String oidcTokenEnv;
     private final Map<String, String> env;
-    private final String loginCommand;
+    private final Consumer<String> out;
     private final Api api;
     private final Map<String, Session> current = new HashMap<>();
     private final List<Session> minted = new ArrayList<>();
+    private DeviceKey device;
 
     /**
      * @param oidcTokenEnv the name of the variable that holds a CI's OIDC token, or null
-     * @param loginCommand the command that enrolls a device, shown when there is no proof
+     * @param out          receives the lines of a device enrollment
      */
-    public Publisher(ServerUrl server, String oidcTokenEnv, Map<String, String> env, String loginCommand) {
+    public Publisher(ServerUrl server, String oidcTokenEnv, Map<String, String> env, Consumer<String> out) {
         this.server = server;
         this.oidcTokenEnv = oidcTokenEnv == null || oidcTokenEnv.isBlank() ? null : oidcTokenEnv.trim();
         this.env = env;
-        this.loginCommand = loginCommand;
+        this.out = out;
         this.api = new Api(server);
     }
 
@@ -71,20 +73,15 @@ public final class Publisher {
         }
     }
 
-    /** Returns null when a proof is available, else a message that tells how to get one. */
-    public String missingProof() {
-        if (githubAvailable() || envToken() != null) {
-            return null;
+    /**
+     * Makes sure that a proof of identity is available. Without a CI token, it checks the saved
+     * device and, outside CI, enrolls one when the server accepts none. In CI with no token, it
+     * fails with what the job must add.
+     */
+    public synchronized void ensureProof() throws IOException {
+        if (!githubAvailable() && envToken() == null) {
+            device();
         }
-        try {
-            if (DeviceKey.load(server) != null) {
-                return null;
-            }
-        } catch (IOException e) {
-            return e.getMessage() + ". Run " + loginCommand + " to enroll this machine again.";
-        }
-        return "This machine has no Telesphorepo device key for " + server + ". Run " + loginCommand
-                + " to enroll it, or publish from a CI with an OIDC trust policy.";
     }
 
     /** Returns an open session for {@code repo}, minting one when there is none or it ends soon. */
@@ -118,6 +115,22 @@ public final class Publisher {
         current.clear();
     }
 
+    /** This computer's device, checked once per build; see {@link #ensureProof}. */
+    private DeviceKey device() throws IOException {
+        if (device != null) {
+            return device;
+        }
+        DeviceKey d = DeviceLogin.accepted(api, out);
+        if (d == null) {
+            if (Ci.detected(env)) {
+                throw new IOException(Ci.noToken(env, oidcTokenEnv, server));
+            }
+            d = DeviceLogin.enroll(api, DeviceLogin.defaultName(), "maven", out);
+        }
+        device = d;
+        return d;
+    }
+
     private Session mint(String repo) throws IOException {
         if (githubAvailable()) {
             String token = api.githubIdToken(env.get("ACTIONS_ID_TOKEN_REQUEST_URL"),
@@ -128,46 +141,42 @@ public final class Publisher {
         if (envToken != null) {
             return oidc(envToken, repo, "the CI identity token in " + oidcTokenEnv);
         }
-        DeviceKey device = DeviceKey.load(server);
-        if (device == null) {
-            throw new IOException(missingProof());
-        }
-        Map<String, Object> challenge;
+        DeviceKey d = device();
+        String nonce;
         try {
-            challenge = api.post("/api/publish/challenge", Map.of("device_id", device.deviceId()), null);
+            nonce = DeviceLogin.challenge(api, d);
         } catch (ApiException e) {
-            if (e.status() == 401 || e.status() == 404) {
-                throw refused(device, e);
-            }
-            throw e;
-        }
-        if (!(challenge.get("nonce") instanceof String nonce) || nonce.isEmpty()) {
-            throw new IOException("the challenge answer has no nonce");
+            throw e.status() == 401 ? refused(d, e) : e;
         }
         Map<String, Object> req = new LinkedHashMap<>();
-        req.put("device_id", device.deviceId());
+        req.put("device_id", d.deviceId());
         req.put("repo", repo);
         req.put("nonce", nonce);
-        req.put("signature", device.signPublish(nonce, repo));
+        req.put("signature", d.signPublish(nonce, repo));
         try {
-            return session(api.post("/api/publish/sessions", req, null), repo, "device " + device.deviceId());
+            return session(api.post("/api/publish/sessions", req, null), repo, "device " + d.deviceId());
         } catch (ApiException e) {
-            if (e.status() == 401) {
-                throw refused(device, e);
+            if (e.status() == 404) {
+                throw noRepo(repo, e);
             }
-            throw e;
+            throw e.status() == 401 ? refused(d, e) : e;
         }
     }
 
-    private IOException refused(DeviceKey device, ApiException e) {
-        return new IOException("the server refused device " + device.deviceId() + " (" + e.getMessage()
-                + "). It may be revoked or expired; run " + loginCommand + " to enroll this machine again.", e);
+    private IOException refused(DeviceKey d, ApiException e) {
+        return new IOException("the server refused device " + d.deviceId() + " (" + e.error() + "). Delete "
+                + DeviceKey.file(server) + " and deploy again to approve this computer again.", e);
+    }
+
+    private IOException noRepo(String repo, ApiException e) {
+        return new IOException("the repository \"" + repo + "\" does not exist on " + server
+                + ". Check the repository URL in <distributionManagement>.", e);
     }
 
     /**
      * The token in the variable named by oidcTokenEnv, or null when the variable is unset or
      * empty. An empty variable falls back to the device key, so a project can name the variable
-     * for its CI and still publish from a developer machine.
+     * for its CI and still publish from a developer computer.
      */
     private String envToken() {
         if (oidcTokenEnv == null) {
@@ -181,7 +190,11 @@ public final class Publisher {
         Map<String, Object> req = new LinkedHashMap<>();
         req.put("token", token);
         req.put("repo", repo);
-        return session(api.post("/api/publish/sessions/oidc", req, null), repo, via);
+        try {
+            return session(api.post("/api/publish/sessions/oidc", req, null), repo, via);
+        } catch (ApiException e) {
+            throw e.status() == 404 ? noRepo(repo, e) : e;
+        }
     }
 
     private static Session session(Map<String, Object> m, String repo, String via) throws IOException {

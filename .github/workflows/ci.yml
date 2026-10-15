@@ -1,7 +1,11 @@
-# Builds both clients on every push and pull request. A push to main also publishes
-# snapshots to the Nexus snapshot repository.
+# Builds both clients on every push and pull request. A push to main also publishes snapshots
+# to the Nexus snapshot repository and to the Maven Central snapshot repository
+# (https://central.sonatype.com/repository/maven-snapshots/). The Gradle Plugin Portal takes no
+# snapshots, so the Gradle plugin snapshot goes to Maven Central too.
 #
-# Environment "Nexus" (snapshot jobs): variable NEXUS_USERNAME, secret NEXUS_PASSWORD.
+# Environment "Nexus": variable NEXUS_USERNAME, secret NEXUS_PASSWORD.
+# Environment "Central": secrets CENTRAL_TOKEN_USERNAME and CENTRAL_TOKEN_PASSWORD, a user token
+# of central.sonatype.com. The namespace com.telesphorepo must have SNAPSHOTs enabled.
 name: ci
 
 on:
@@ -27,11 +31,9 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: "9.8.1"
       - name: Build
         working-directory: gradle
-        run: gradle --no-daemon --console=plain build
+        run: ./gradlew --no-daemon --console=plain build
       - name: Publish snapshot
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: gradle
@@ -39,9 +41,35 @@ jobs:
           NEXUS_MAVEN_URL: ${{ env.NEXUS_SNAPSHOTS_URL }}
           NEXUS_USERNAME: ${{ vars.NEXUS_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
-        # gradle.properties holds a -SNAPSHOT version, so build.gradle.kts adds the repository
-        # "snapshot" from NEXUS_MAVEN_URL.
-        run: gradle --no-daemon --console=plain publishAllPublicationsToSnapshotRepository
+        # gradle.properties holds the next release version. Snapshots use that version plus
+        # -SNAPSHOT, so build.gradle.kts adds the repository "snapshot" from NEXUS_MAVEN_URL.
+        run: |
+          version="$(sed -n 's/^version=//p' gradle.properties | tr -d '\r')"
+          ./gradlew --no-daemon --console=plain publishAllPublicationsToSnapshotRepository -Pversion="${version%-SNAPSHOT}-SNAPSHOT"
+
+  gradle-central-snapshot:
+    name: Gradle plugin snapshot to Maven Central
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: gradle
+    environment: Central
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Publish snapshot
+        working-directory: gradle
+        env:
+          # build.gradle.kts reads the credentials of the repository "centralSnapshots" from the
+          # Gradle properties centralSnapshotsUsername and centralSnapshotsPassword.
+          ORG_GRADLE_PROJECT_centralSnapshotsUsername: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          ORG_GRADLE_PROJECT_centralSnapshotsPassword: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+        run: |
+          version="$(sed -n 's/^version=//p' gradle.properties | tr -d '\r')"
+          ./gradlew --no-daemon --console=plain publishAllPublicationsToCentralSnapshotsRepository -Pversion="${version%-SNAPSHOT}-SNAPSHOT"
 
   maven:
     name: Maven extension and plugin
@@ -60,7 +88,7 @@ jobs:
           server-password: NEXUS_PASSWORD
       - name: Build
         working-directory: maven
-        run: mvn -B -ntp package
+        run: ./mvnw -B -ntp package
       - name: Publish snapshot
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         working-directory: maven
@@ -69,6 +97,37 @@ jobs:
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
           # The pom holds the next release version. Snapshots use that version plus -SNAPSHOT.
-          version="$(mvn -B -ntp -q help:evaluate -Dexpression=project.version -DforceStdout)"
-          mvn -B -ntp org.codehaus.mojo:versions-maven-plugin:2.18.0:set -DnewVersion="${version%-SNAPSHOT}-SNAPSHOT" -DgenerateBackupPoms=false
-          mvn -B -ntp deploy -DskipTests -DaltDeploymentRepository="snapshot::${NEXUS_SNAPSHOTS_URL}"
+          version="$(./mvnw -B -ntp -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          ./mvnw -B -ntp org.codehaus.mojo:versions-maven-plugin:2.18.0:set -DnewVersion="${version%-SNAPSHOT}-SNAPSHOT" -DgenerateBackupPoms=false
+          ./mvnw -B -ntp deploy -DskipTests -DaltDeploymentRepository="snapshot::${NEXUS_SNAPSHOTS_URL}"
+
+  maven-central-snapshot:
+    name: Maven extension and plugin snapshot to Maven Central
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: maven
+    environment: Central
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          # Writes ~/.m2/settings.xml with the server "central", the publishingServerId of
+          # central-publishing-maven-plugin.
+          server-id: central
+          server-username: CENTRAL_TOKEN_USERNAME
+          server-password: CENTRAL_TOKEN_PASSWORD
+      - name: Publish snapshot
+        working-directory: maven
+        env:
+          CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+        # The release profile adds the sources and javadoc jars. With a -SNAPSHOT version,
+        # central-publishing-maven-plugin uploads to the Central snapshot repository. Snapshots
+        # need no signatures.
+        run: |
+          version="$(./mvnw -B -ntp -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          ./mvnw -B -ntp org.codehaus.mojo:versions-maven-plugin:2.18.0:set -DnewVersion="${version%-SNAPSHOT}-SNAPSHOT" -DgenerateBackupPoms=false
+          ./mvnw -B -ntp -P release deploy -DskipTests -Dgpg.skip
