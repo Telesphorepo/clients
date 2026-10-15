@@ -81,10 +81,15 @@ cd maven && ./mvnw package     # the Maven client library, extension and plugin
 
 ## Release
 
-Push a tag `v<version>`, for example `v0.1.0`. CI publishes both clients with the version of the tag.
-GitHub secrets: environment `Nexus` (variable `NEXUS_USERNAME`, secret `NEXUS_PASSWORD`), `PluginPortal`
-(`GRADLE_PUBLISH_KEY`, `GRADLE_PUBLISH_SECRET`, `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`) and `Central`
-(`CENTRAL_TOKEN_USERNAME`, `CENTRAL_TOKEN_PASSWORD`, `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`).
+Run `./release.sh` in Git Bash or a Linux shell. It walks you through each step: the signing key
+(which expires every 3 years), the Gradle Plugin Portal key, the Maven Central token and the GitHub
+secrets. Then it releases: it sets the version, tags `v<version>`, pushes and follows the CI run.
+`./release.sh check` shows what is set up.
+
+The release workflow publishes both clients with the version of the tag. GitHub secrets: environment
+`Nexus` (variable `NEXUS_USERNAME`, secret `NEXUS_PASSWORD`), `PluginPortal` (`GRADLE_PUBLISH_KEY`,
+`GRADLE_PUBLISH_SECRET`, `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`) and `Central` (`CENTRAL_TOKEN_USERNAME`,
+`CENTRAL_TOKEN_PASSWORD`, `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`).
 
 ## Tests
 
