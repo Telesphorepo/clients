@@ -96,26 +96,29 @@ real Gradle and Maven builds. `E2E_CLIENTS_REF` picks the branch or tag.
 ## CI without a client
 
 Get a session with two `curl` calls, then use its token as the HTTP Basic password (any
-username). The examples use `jq`.
+username). The examples use `jq`. Each token goes to `curl` on stdin: `printf` is a shell
+builtin, and `curl -K -` reads its config from stdin, so no token is an argument of a process.
 
 ### GitHub Actions
 
-The job needs `permissions: id-token: write`.
+The job needs `permissions: id-token: write`. `::add-mask::` hides each token in the job log.
 
 ```sh
-OIDC=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-  "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://repo.acme.com" | jq -r .value)
-SESSION=$(curl -sSf https://repo.acme.com/api/publish/sessions/oidc \
-  -H 'Content-Type: application/json' \
-  -d "{\"token\":\"$OIDC\",\"repo\":\"releases\"}")
+OIDC=$(printf 'header = "Authorization: bearer %s"\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+  | curl -sSf -K - "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://repo.acme.com" | jq -r .value)
+echo "::add-mask::$OIDC"
+SESSION=$(printf '{"token":"%s","repo":"releases"}' "$OIDC" \
+  | curl -sSf -H 'Content-Type: application/json' --data @- https://repo.acme.com/api/publish/sessions/oidc)
 TOKEN=$(echo "$SESSION" | jq -r .token)
+echo "::add-mask::$TOKEN"
+ID=$(echo "$SESSION" | jq -r .id)
 
-curl -sSf -u "ci:$TOKEN" -T app-1.0.jar \
+printf 'user = "ci:%s"\n' "$TOKEN" | curl -sSf -K - -T app-1.0.jar \
   https://repo.acme.com/maven/releases/com/acme/app/1.0/app-1.0.jar
 
 # End the session when the publish is done.
-curl -sSf -X DELETE -u "ci:$TOKEN" \
-  "https://repo.acme.com/api/publish/sessions/$(echo "$SESSION" | jq -r .id)"
+printf 'user = "ci:%s"\n' "$TOKEN" | curl -sSf -K - -X DELETE \
+  "https://repo.acme.com/api/publish/sessions/$ID"
 ```
 
 ### Jenkins
@@ -127,20 +130,21 @@ with the ID `telesphorepo-id-token` and the audience `https://repo.acme.com`.
 withCredentials([string(credentialsId: 'telesphorepo-id-token', variable: 'OIDC_TOKEN')]) {
   sh '''
     set +x
-    SESSION=$(curl -sSf https://repo.acme.com/api/publish/sessions/oidc \
-      -H 'Content-Type: application/json' \
-      -d "{\\"token\\":\\"$OIDC_TOKEN\\",\\"repo\\":\\"releases\\"}")
+    SESSION=$(printf '{"token":"%s","repo":"releases"}' "$OIDC_TOKEN" \\
+      | curl -sSf -H 'Content-Type: application/json' --data @- https://repo.acme.com/api/publish/sessions/oidc)
     TOKEN=$(echo "$SESSION" | jq -r .token)
     ID=$(echo "$SESSION" | jq -r .id)
-    trap 'curl -sSf -X DELETE -u "ci:$TOKEN" "https://repo.acme.com/api/publish/sessions/$ID"' EXIT
-    curl -sSf -u "ci:$TOKEN" -T app-1.0.jar \
+    close_session() { printf 'user = "ci:%s"\\n' "$TOKEN" | curl -sSf -K - -X DELETE "https://repo.acme.com/api/publish/sessions/$ID"; }
+    trap close_session EXIT
+    printf 'user = "ci:%s"\\n' "$TOKEN" | curl -sSf -K - -T app-1.0.jar \\
       https://repo.acme.com/maven/releases/com/acme/app/1.0/app-1.0.jar
   '''
 }
 ```
 
 Jenkins prints each command of an `sh` step. `set +x` keeps the session token out of the build
-log. The `trap` ends the session also when the upload fails.
+log. The `trap` ends the session also when the upload fails. A Groovy `'''` string reads a
+backslash as an escape, so the script doubles each backslash.
 
 With the Gradle plugin, set `oidcTokenEnv = "OIDC_TOKEN"` instead and run the publish inside
 `withCredentials`. With the Maven extension, run `mvn -B deploy -Dtelesphorepo.oidcTokenEnv=OIDC_TOKEN`

@@ -2,7 +2,6 @@ package com.telesphorepo.maven.client;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -10,6 +9,7 @@ import java.nio.file.attribute.AclEntry;
 import java.nio.file.attribute.AclEntryPermission;
 import java.nio.file.attribute.AclEntryType;
 import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.attribute.UserPrincipal;
 import java.security.GeneralSecurityException;
@@ -79,12 +79,20 @@ public final class DeviceKey {
 
     /**
      * Reads the device for {@code server}, or returns null when there is none. Only
-     * {@code device_id} and {@code private_key} are needed; the other fields are informative.
+     * {@code device_id} and {@code private_key} are needed; the other fields are informative. On a
+     * POSIX file system, a file that its group or other users can access is refused.
      */
     public static DeviceKey load(ServerUrl server) throws IOException {
         Path f = file(server);
         if (!Files.isRegularFile(f)) {
             return null;
+        }
+        if (posix(f)) {
+            for (PosixFilePermission p : Files.getPosixFilePermissions(f)) {
+                if (p.name().startsWith("GROUP") || p.name().startsWith("OTHERS")) {
+                    throw new IOException(f + " must be readable by its owner only. Run: chmod 600 " + f);
+                }
+            }
         }
         Map<String, Object> m = Json.parseObject(Files.readString(f, StandardCharsets.UTF_8));
         if (!(m.get("device_id") instanceof Long id) || id <= 0 || !(m.get("private_key") instanceof String p)) {
@@ -101,11 +109,14 @@ public final class DeviceKey {
         }
     }
 
-    /** Writes the device file. Only the owner can read it; an old file is replaced at once. */
+    /**
+     * Writes the device file. Only the owner can read it and its folder: mode 600 and 700 on
+     * POSIX systems, an ACL with the owner as the only entry elsewhere. A file system that
+     * supports neither fails the save. An old file is replaced at once.
+     */
     public Path save(ServerUrl server) throws IOException {
         Path f = file(server);
         Path dir = f.getParent();
-        Files.createDirectories(dir);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("server", this.server);
         m.put("device_id", deviceId);
@@ -113,12 +124,15 @@ public final class DeviceKey {
         m.put("public_key", Base64.getEncoder().encodeToString(publicKey));
         m.put("created_at", createdAt);
         Path tmp = dir.resolve("device.json.tmp");
-        Files.deleteIfExists(tmp);
-        boolean posix = FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
-        if (posix) {
+        if (posix(f)) {
+            Files.createDirectories(dir, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
             Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------"));
+            Files.deleteIfExists(tmp);
             Files.createFile(tmp, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
         } else {
+            Files.createDirectories(dir);
+            ownerOnly(dir);
+            Files.deleteIfExists(tmp);
             Files.createFile(tmp);
             ownerOnly(tmp);
         }
@@ -152,10 +166,16 @@ public final class DeviceKey {
         return createdAt;
     }
 
+    private static boolean posix(Path p) {
+        return p.getFileSystem().supportedFileAttributeViews().contains("posix");
+    }
+
+    /** Replaces the ACL of p with one entry that gives its owner full control. */
     private static void ownerOnly(Path p) throws IOException {
         AclFileAttributeView view = Files.getFileAttributeView(p, AclFileAttributeView.class);
         if (view == null) {
-            return;
+            throw new IOException("the file system supports neither POSIX permissions nor ACLs, so "
+                    + p + " cannot be made readable by its owner only");
         }
         UserPrincipal owner = Files.getOwner(p);
         AclEntry entry = AclEntry.newBuilder()

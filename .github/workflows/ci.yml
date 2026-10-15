@@ -49,7 +49,8 @@ jobs:
 
   gradle-central-snapshot:
     name: Gradle plugin snapshot to Maven Central
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Runs once the repository variable CENTRAL_SNAPSHOTS is "true" (snapshots enabled on Central).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CENTRAL_SNAPSHOTS == 'true'
     needs: gradle
     environment: Central
     runs-on: ubuntu-latest
@@ -103,7 +104,8 @@ jobs:
 
   maven-central-snapshot:
     name: Maven extension and plugin snapshot to Maven Central
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Runs once the repository variable CENTRAL_SNAPSHOTS is "true" (snapshots enabled on Central).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CENTRAL_SNAPSHOTS == 'true'
     needs: maven
     environment: Central
     runs-on: ubuntu-latest
