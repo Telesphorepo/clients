@@ -3,6 +3,7 @@
 #
 #   ./release.sh            menu
 #   ./release.sh check      show what is set up and what expires
+#   ./release.sh renew      move the signing key's expiry date 3 years out
 #   ./release.sh release    release a new version (tag, push, watch CI)
 #
 # Run it from Git Bash, MSYS2 (UCRT64) or Linux (it uses GNU sed). It needs git, gh (signed in to an account
@@ -91,6 +92,33 @@ signing_key() {
   for e in PluginPortal Central; do
     printf '%s\n' "$key" | secret GPG_PRIVATE_KEY "$e"
     printf '%s' "$pass" | secret GPG_PASSPHRASE "$e"
+  done
+  unset key pass
+}
+
+# ---------------------------------------------------------------- renew
+
+renew_key() {
+  need gpg gh
+  bold "Renew the signing key"
+  info "This moves the expiry date of the key you have. The key itself stays the same, so"
+  info "signatures made with it keep working."
+  echo
+  gpg --list-secret-keys --keyid-format long "$UID_NAME" 2>/dev/null || true
+  local fpr pass
+  read -rp "  Key ID or fingerprint to renew: " fpr
+  gpg --list-secret-keys "$fpr" >/dev/null 2>&1 || fail "gpg has no secret key $fpr."
+  hidden "Passphrase of that key" pass
+  printf '%s' "$pass" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 --quick-set-expire "$fpr" 3y
+  info "The key now expires in 3 years."
+  info "Sending the renewed public key to $KEYSERVER ..."
+  gpg --keyserver "$KEYSERVER" --send-keys "$fpr"
+  local key
+  key=$(printf '%s' "$pass" | gpg --batch --pinentry-mode loopback --passphrase-fd 0 \
+    --armor --export-secret-keys "$fpr") || fail "gpg refused the passphrase."
+  [[ $key == *"PRIVATE KEY BLOCK"* ]] || fail "gpg exported nothing. Check the passphrase."
+  for e in PluginPortal Central; do
+    printf '%s\n' "$key" | secret GPG_PRIVATE_KEY "$e"
   done
   unset key pass
 }
@@ -198,8 +226,9 @@ menu() {
   info "2  Gradle Plugin Portal API key"
   info "3  Maven Central user token"
   info "4  All of 1-3 (first setup, or when the key expires)"
-  info "5  Check what is set up"
-  info "6  Release a new version"
+  info "5  Renew the signing key before it expires (same key, new date)"
+  info "6  Check what is set up"
+  info "7  Release a new version"
   local c
   read -rp "  Choose: " c
   case $c in
@@ -207,15 +236,17 @@ menu() {
     2) plugin_portal ;;
     3) central ;;
     4) signing_key; plugin_portal; central; check ;;
-    5) check ;;
-    6) release ;;
-    *) fail "Choose 1 to 6." ;;
+    5) renew_key ;;
+    6) check ;;
+    7) release ;;
+    *) fail "Choose 1 to 7." ;;
   esac
 }
 
 case "${1:-}" in
   check) check ;;
+  renew) renew_key ;;
   release) release ;;
   "") menu ;;
-  *) fail "Usage: ./release.sh [check|release]" ;;
+  *) fail "Usage: ./release.sh [check|renew|release]" ;;
 esac
