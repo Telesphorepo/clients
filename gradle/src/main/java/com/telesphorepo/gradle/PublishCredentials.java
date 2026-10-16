@@ -1,5 +1,6 @@
 package com.telesphorepo.gradle;
 
+import com.telesphorepo.client.Protocol;
 import org.gradle.api.Action;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.repositories.MavenArtifactRepository;
@@ -32,7 +33,7 @@ final class PublishCredentials implements Action<Task> {
         }
         String token = s.token(name);
         PasswordCredentials c = repo.getCredentials();
-        c.setUsername(TelesphorepoService.SESSION_USER);
+        c.setUsername(Protocol.SESSION_USER);
         c.setPassword(token);
     }
 }

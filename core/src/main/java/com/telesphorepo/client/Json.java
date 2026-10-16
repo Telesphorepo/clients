@@ -1,4 +1,4 @@
-package com.telesphorepo.gradle;
+package com.telesphorepo.client;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -6,10 +6,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * A small JSON reader and writer for the server's API. Objects read as {@code Map<String, Object>},
- * arrays as {@code List<Object>}, integers as {@code Long}, other numbers as {@code Double}.
+ * The JSON reader and writer of the client. Objects read as {@code Map<String, Object>}, arrays
+ * as {@code List<Object>}, integers as {@code Long}, other numbers as {@code Double}. A syntax
+ * error is an {@link IllegalArgumentException}.
  */
-final class Json {
+public final class Json {
     private final String s;
     private int i;
 
@@ -17,7 +18,7 @@ final class Json {
         this.s = s;
     }
 
-    static Object parse(String text) {
+    public static Object parse(String text) {
         Json p = new Json(text);
         p.ws();
         Object v = p.value();
@@ -29,7 +30,7 @@ final class Json {
     }
 
     @SuppressWarnings("unchecked")
-    static Map<String, Object> parseObject(String text) {
+    public static Map<String, Object> parseObject(String text) {
         Object v = parse(text);
         if (!(v instanceof Map)) {
             throw new IllegalArgumentException("JSON: expected an object");
@@ -37,34 +38,10 @@ final class Json {
         return (Map<String, Object>) v;
     }
 
-    static String write(Map<String, ?> m) {
+    public static String write(Map<String, ?> m) {
         StringBuilder b = new StringBuilder();
         writeValue(b, m);
         return b.toString();
-    }
-
-    /** Returns the string field k, or null when it is absent or not a string. */
-    static String string(Map<String, Object> m, String k) {
-        Object v = m.get(k);
-        return v instanceof String ? (String) v : null;
-    }
-
-    /** Returns field k as text: a string as is, a number in decimal, otherwise null. */
-    static String text(Map<String, Object> m, String k) {
-        Object v = m.get(k);
-        if (v instanceof String || v instanceof Long) {
-            return v.toString();
-        }
-        if (v instanceof Double) {
-            double d = (Double) v;
-            return d == Math.rint(d) ? Long.toString((long) d) : v.toString();
-        }
-        return null;
-    }
-
-    static long number(Map<String, Object> m, String k, long fallback) {
-        Object v = m.get(k);
-        return v instanceof Number ? ((Number) v).longValue() : fallback;
     }
 
     private static void writeValue(StringBuilder b, Object v) {

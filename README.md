@@ -16,6 +16,47 @@ On a developer's computer, the first publish asks you to approve the computer in
 The client prints the link, opens it, waits for the approval and then publishes. Later publishes
 use the saved device key.
 
+Both clients use one shared core in [`core/`](core/src/main/java/com/telesphorepo/client): the
+server identity, the HTTP calls, enrollment, the device file, CI tokens and publish sessions.
+The Gradle plugin compiles it into its jar. The Maven client library
+(`telesphorepo-maven-client`) compiles the same sources, and the extension and the plugin use
+that library.
+
+### Server identity
+
+`telesphorepo.url` names the server. A repository URL belongs to the server only when its
+scheme, host and port are equal to those of `telesphorepo.url` and its path is under the base
+path of `telesphorepo.url`. A port that the URL does not name is 80 for `http` and 443 for
+`https`. The clients send a token, a device signature or a session request only to the server.
+A repository on another server, or on the same host with another scheme or port, goes on as a
+repository of another server.
+
+### Device file
+
+The device key is in `~/.telesphorepo/<dir>/device.json`. Only you can read it (mode 600 in a
+700 folder, or an ACL with only you elsewhere). `<dir>` is the host, then `_<port>` when the
+port is not the default of the scheme, then `_` and the base path with `/` as `_` when the URL
+has a base path: `repo.acme.com`, `repo.acme.com_8443`, `acme.com_tools_repo`. The Gradle
+plugin and the Maven extension share the file:
+
+```json
+{"server": "https://repo.acme.com", "device_id": 7, "client": "gradle",
+ "private_key": "<base64 PKCS#8>", "public_key": "<base64 raw 32 bytes>",
+ "created_at": "2026-10-15T10:00:00Z"}
+```
+
+All fields are required, and `server` must be the URL of the server without a default port or
+a trailing slash. When the file is not valid, the client says so and enrolls the computer again.
+
+### Publish sessions
+
+The server answers a session request with
+`{"id": 41, "token": "trs_...", "repo": "releases", "expires_at": "2026-10-15T12:00:00Z"}`.
+The client checks each field: `id` an integer above 0, `token` starting with `trs_`, `repo` the
+requested repository, and `expires_at` an RFC 3339 time. Another answer stops the publish with
+the route and the field. The client uses a session until one minute before it expires, then
+gets a new one, and closes all its sessions when the build ends.
+
 In CI, the clients use the CI's identity token (OIDC). An admin must add a **CI pipeline** on
 the server's **Settings › CI pipelines** page. The pipeline names the CI, the jobs and the
 repositories.
@@ -75,9 +116,11 @@ The project's Nexus also has every release and snapshot:
 JDK 17 is required. The wrappers download Gradle and Maven.
 
 ```sh
-cd gradle && ./gradlew build   # the Gradle plugin
-cd maven && ./mvnw package     # the Maven client library, extension and plugin
+cd gradle && ./gradlew build   # the Gradle plugin, with the core
+cd maven && ./mvnw package     # the Maven client library (the core), extension and plugin
 ```
+
+Both builds read the core from `../core`, so build them in a full checkout.
 
 ## Release
 
@@ -96,7 +139,8 @@ The release workflow publishes both clients with the version of the tag. GitHub 
 The [Telesphorepo server repository](https://github.com/Telesphorepo/Telesphorepo) tests these
 clients in its `clients` e2e zone (`go tool task test clients`). The zone builds the clients from
 a clone of this repository (or from `E2E_CLIENTS_DIR`) and uses them against a real server with
-real Gradle and Maven builds. `E2E_CLIENTS_REF` picks the branch or tag.
+real Gradle and Maven builds. It copies `core/`, `gradle/` and `maven/` next to each other, so
+the relative core paths resolve. `E2E_CLIENTS_REF` picks the branch or tag.
 
 ## CI without a client
 

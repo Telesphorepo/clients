@@ -1,5 +1,10 @@
 package com.telesphorepo.gradle;
 
+import com.telesphorepo.client.ClientException;
+import com.telesphorepo.client.DeviceFile;
+import com.telesphorepo.client.Enrollment;
+import com.telesphorepo.client.Http;
+import com.telesphorepo.client.ServerIdentity;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.provider.Property;
@@ -12,7 +17,7 @@ import org.gradle.api.tasks.UntrackedTask;
  * Makes sure this computer has a device that the server accepts. It keeps the saved device when
  * the server still accepts it. Otherwise it enrolls a new one: it prints the approval link, waits
  * until the developer approves it in a browser, then saves the key in
- * {@code ~/.telesphorepo/<host>/device.json}. A publish does the same when it needs a device.
+ * {@code ~/.telesphorepo/<dir>/device.json}. A publish does the same when it needs a device.
  */
 @UntrackedTask(because = "Enrolls a device with the server")
 public abstract class TelesphorepoLoginTask extends DefaultTask {
@@ -25,13 +30,19 @@ public abstract class TelesphorepoLoginTask extends DefaultTask {
         if (!getUrl().isPresent()) {
             throw new GradleException("Set the server URL in settings.gradle(.kts): telesphorepo { url = \"https://repo.example.com\" }");
         }
-        Api api = new Api(getUrl().get());
-        DeviceKey device = DeviceLogin.accepted(api, getLogger());
-        if (device != null) {
-            getLogger().lifecycle("This computer is already enrolled as device " + device.deviceId + " for " + api.base
-                + ". Its key is in " + DeviceKey.file(api.base));
-            return;
+        ServerIdentity server = TelesphorepoService.server(getUrl().get());
+        Http http = new Http(server, TelesphorepoService.TOOL.client());
+        GradleLog log = new GradleLog(getLogger());
+        try {
+            DeviceFile device = Enrollment.accepted(http, log);
+            if (device != null) {
+                getLogger().lifecycle("This computer is already enrolled as device " + device.deviceId() + " for " + server
+                        + ". Its key is in " + DeviceFile.path(server));
+                return;
+            }
+            Enrollment.enroll(http, TelesphorepoService.TOOL.client(), Enrollment.defaultName(), log);
+        } catch (ClientException e) {
+            throw new GradleException("Telesphorepo login failed: " + e.getMessage(), e);
         }
-        DeviceLogin.enroll(api, getLogger());
     }
 }

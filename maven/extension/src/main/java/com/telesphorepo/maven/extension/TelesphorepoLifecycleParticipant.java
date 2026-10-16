@@ -1,7 +1,7 @@
 package com.telesphorepo.maven.extension;
 
-import com.telesphorepo.maven.client.ServerUrl;
-import java.io.IOException;
+import com.telesphorepo.client.ClientException;
+import com.telesphorepo.client.ServerIdentity;
 import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Named;
@@ -59,20 +59,20 @@ public class TelesphorepoLifecycleParticipant extends AbstractMavenLifecyclePart
             log.debug("Telesphorepo: no telesphorepo.url; publish sessions are off");
             return;
         }
-        ServerUrl server;
+        ServerIdentity server;
         try {
-            server = ServerUrl.parse(url);
-        } catch (IllegalArgumentException e) {
+            server = ServerIdentity.of(url);
+        } catch (ClientException e) {
             throw new MavenExecutionException(e.getMessage(), top == null ? null : top.getFile());
         }
         state.configure(server, property(session, top, "telesphorepo.oidcTokenEnv"));
 
-        if (!deploys(session.getGoals()) || !targetsServer(session.getProjects(), server)) {
+        if (!deploys(session.getGoals()) || !targetsServer(session.getProjects())) {
             return;
         }
         try {
             state.ensureProof();
-        } catch (IOException e) {
+        } catch (ClientException e) {
             throw new MavenExecutionException("Telesphorepo: " + e.getMessage(), top == null ? null : top.getFile());
         }
     }
@@ -102,11 +102,11 @@ public class TelesphorepoLifecycleParticipant extends AbstractMavenLifecyclePart
         return false;
     }
 
-    private static boolean targetsServer(List<MavenProject> projects, ServerUrl server) {
+    private boolean targetsServer(List<MavenProject> projects) {
         for (MavenProject p : projects) {
             // The snapshot repository for a -SNAPSHOT version, else the release repository.
             ArtifactRepository r = p.getDistributionManagementArtifactRepository();
-            if (r != null && server.repoOf(r.getUrl()) != null) {
+            if (r != null && state.classify(r.getUrl()) instanceof PublishState.Telesphorepo) {
                 return true;
             }
         }

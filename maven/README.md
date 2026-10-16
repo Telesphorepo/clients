@@ -35,7 +35,13 @@ Deploy to it as usual. In `pom.xml`:
 
 A `<telesphorepo.url>` property in `pom.xml` and the environment variable `TELESPHOREPO_URL`
 also work. The extension handles every deployment repository whose URL is
-`<telesphorepo.url>/maven/<repo>`, `-DaltDeploymentRepository` and `deploy:deploy-file` included.
+`<telesphorepo.url>/maven/<repo>` with the same scheme, host and port,
+`-DaltDeploymentRepository` and `deploy:deploy-file` included (see
+[server identity](../README.md#server-identity)). Every other repository goes to Maven
+unchanged, with the credentials of `settings.xml`.
+
+For a repository on the server, a failed session request stops the deploy with the server's
+message. The extension never sends the `settings.xml` credentials to such a repository.
 
 ## Publish
 
@@ -46,7 +52,8 @@ mvn deploy
 The first deploy on a computer prints a line like
 `Open https://repo.acme.com/#/device?code=ABCD-EFGH and approve code ABCD-EFGH` and opens the
 link in your browser. Sign in, check the code and approve it with your second factor. The build
-then continues. The key goes to `~/.telesphorepo/<host>/device.json`, and only you can read it.
+then continues. The key goes to `~/.telesphorepo/<dir>/device.json`, and only you can read it
+(see [the device file](../README.md#device-file)).
 The Gradle plugin uses the same file. Later deploys use it until it expires (90 days by default)
 or someone revokes it on the server's **Devices** page.
 
@@ -82,6 +89,8 @@ name the device list shows.
 ```sh
 ./mvnw install   # in maven/
 ```
+
+`telesphorepo-maven-client` holds the shared core; its sources are in `../core`.
 
 `./mvnw deploy -DaltDeploymentRepository=release::<url>` publishes to a Maven repository such as
 Nexus. The release workflow does this. `./mvnw -P release deploy` adds the sources and javadoc

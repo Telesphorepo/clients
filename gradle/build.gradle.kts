@@ -8,6 +8,12 @@ plugins {
 
 group = "com.telesphorepo"
 
+// The shared client core (package com.telesphorepo.client) compiles into the plugin jar. The
+// Maven client library compiles the same sources.
+sourceSets.main {
+    java.srcDir("../core/src/main/java")
+}
+
 tasks.withType<JavaCompile>().configureEach {
     options.release = 17
     options.encoding = "UTF-8"

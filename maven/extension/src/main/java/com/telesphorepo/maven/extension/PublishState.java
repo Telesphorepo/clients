@@ -1,13 +1,14 @@
 package com.telesphorepo.maven.extension;
 
-import com.telesphorepo.maven.client.Publisher;
-import com.telesphorepo.maven.client.ServerUrl;
-import java.io.IOException;
-import java.util.Set;
+import com.telesphorepo.client.ClientException;
+import com.telesphorepo.client.Environment;
+import com.telesphorepo.client.Logger;
+import com.telesphorepo.client.Publisher;
+import com.telesphorepo.client.ServerIdentity;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.inject.Named;
 import javax.inject.Singleton;
-import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -18,34 +19,65 @@ import org.slf4j.LoggerFactory;
 @Named
 @Singleton
 public class PublishState {
-    private static final Logger log = LoggerFactory.getLogger(PublishState.class);
+    /** What the client messages say for Maven. */
+    static final Environment.Tool TOOL = new Environment.Tool("maven", "deploy",
+            "-Dtelesphorepo.oidcTokenEnv=%s in .mvn/maven.config",
+            "mvn -B deploy",
+            "Check the repository URL in <distributionManagement>.");
+
+    private static final org.slf4j.Logger log = LoggerFactory.getLogger(PublishState.class);
+
+    /** Where a repository URL points: a repository of another server, or one on the configured server. */
+    sealed interface Target permits Unrelated, Telesphorepo {
+    }
+
+    /** A repository of another server. Maven handles it unchanged. */
+    record Unrelated() implements Target {
+    }
+
+    /** A Maven repository on the configured server. */
+    record Telesphorepo(String repo) implements Target {
+    }
+
+    private static final Target UNRELATED = new Unrelated();
 
     private final ThreadLocal<Boolean> deploying = ThreadLocal.withInitial(() -> Boolean.FALSE);
-    private final Set<String> reported = ConcurrentHashMap.newKeySet();
-    private final Set<String> announced = ConcurrentHashMap.newKeySet();
+    private final Map<String, ClientException> failed = new ConcurrentHashMap<>();
     private volatile Publisher publisher;
 
-    void configure(ServerUrl server, String oidcTokenEnv) {
-        // Straight to stderr, so that the approval link and code show also with -q.
-        publisher = new Publisher(server, oidcTokenEnv, System.getenv(), PublishState::prompt);
+    void configure(ServerIdentity server, String oidcTokenEnv) {
+        publisher = new Publisher(server, TOOL, oidcTokenEnv, System.getenv(), new Logger() {
+            @Override
+            public void info(String line) {
+                log.info("Telesphorepo: {}", line);
+            }
+
+            @Override
+            public void warn(String line) {
+                log.warn("Telesphorepo: {}", line);
+            }
+
+            @Override
+            public void prompt(String line) {
+                // Straight to stderr, so that the approval link and code show also with -q.
+                System.err.println("Telesphorepo: " + line);
+                System.err.flush();
+            }
+        });
     }
 
-    private static void prompt(String line) {
-        System.err.println("Telesphorepo: " + line);
-        System.err.flush();
-    }
-
-    /** The configured server, or null when the build sets no telesphorepo.url. */
-    ServerUrl server() {
+    /** Classifies a repository URL. Without a configured server, every URL is unrelated. */
+    Target classify(String url) {
         Publisher p = publisher;
-        return p == null ? null : p.server();
+        String repo = p == null ? null : p.server().repoOf(url, "maven");
+        return repo == null ? UNRELATED : new Telesphorepo(repo);
     }
 
     /**
      * Makes sure that a proof of identity is available. On a developer's computer, this can
      * enroll the computer and wait for the approval in the browser.
      */
-    void ensureProof() throws IOException {
+    void ensureProof() {
         Publisher p = publisher;
         if (p != null) {
             p.ensureProof();
@@ -65,31 +97,23 @@ public class PublishState {
     }
 
     /**
-     * Returns a publish-session token for {@code repoUrl} when it is a repository on the
-     * configured server, minting a session when needed. Returns null for other URLs and when
-     * minting fails; the failure is logged once per repository.
+     * Returns a publish session token for the repository, minting a session when needed. A failed
+     * mint throws, and every later call for the same repository throws the same failure, so the
+     * deploy stops with the server's message and never uses other credentials.
      */
-    String token(String repoUrl) {
-        Publisher p = publisher;
-        if (p == null) {
-            return null;
-        }
-        String repo = p.server().repoOf(repoUrl);
-        if (repo == null) {
-            return null;
+    String token(Telesphorepo target) {
+        ClientException earlier = failed.get(target.repo());
+        if (earlier != null) {
+            throw earlier;
         }
         try {
-            Publisher.Session s = p.session(repo);
-            reported.remove(repo);
-            if (announced.add(s.id)) {
-                log.info("Telesphorepo: publish session {} for {} ({})", s.id, s.repo, s.via);
-            }
-            return s.token;
-        } catch (IOException e) {
-            if (reported.add(repo)) {
-                log.error("Telesphorepo: cannot start a publish session for repository {}: {}", repo, e.getMessage());
-            }
-            return null;
+            return publisher.session(target.repo()).token();
+        } catch (ClientException e) {
+            ClientException stop = new ClientException("Telesphorepo: cannot start a publish session for repository "
+                    + target.repo() + ": " + e.getMessage(), e);
+            failed.put(target.repo(), stop);
+            log.error(stop.getMessage());
+            throw stop;
         }
     }
 
@@ -97,7 +121,7 @@ public class PublishState {
     void closeAll() {
         Publisher p = publisher;
         if (p != null) {
-            p.closeAll(msg -> log.warn("Telesphorepo: {}", msg));
+            p.closeAll();
         }
     }
 }

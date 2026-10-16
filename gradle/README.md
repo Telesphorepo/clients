@@ -29,8 +29,8 @@ Then publish:
 The first publish on a computer prints a line like
 `Open https://repo.acme.com/#/device?code=ABCD-EFGH and approve code ABCD-EFGH` and opens the
 link in your browser. Sign in, check the code and approve it with your second factor. The
-publish then continues. The plugin saves the key in `~/.telesphorepo/<host>/device.json`, which
-only you can read. Later publishes use it until it expires (90 days by default) or someone
+publish then continues. The plugin saves the key in `~/.telesphorepo/<dir>/device.json`, which
+only you can read (see [the device file](../README.md#device-file)). Later publishes use it until it expires (90 days by default) or someone
 revokes it on the server's **Devices** page. Then the next publish asks for an approval again.
 
 The project needs a `group` and a `version` in its build file.
@@ -69,7 +69,9 @@ publishing {
 }
 ```
 
-The plugin sets credentials only on repositories under `<url>/maven/`.
+The plugin sets credentials only on repositories under `<url>/maven/` with the same scheme, host
+and port as `url` (see [server identity](../README.md#server-identity)). A failed session
+request stops the publish task with the server's message.
 
 ## Proof of identity
 

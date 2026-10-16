@@ -56,9 +56,9 @@ public class TelesphorepoPlugin implements Plugin<Settings> {
     /** True when repo is a Maven repository on the configured server. */
     private static boolean publishesToServer(TelesphorepoExtension ext, MavenArtifactRepository repo) {
         String url = ext.getUrl().getOrNull();
-        if (url == null || repo == null) {
+        if (url == null || repo == null || repo.getUrl() == null) {
             return false;
         }
-        return TelesphorepoService.repoName(Api.normalize(url), repo.getUrl()) != null;
+        return TelesphorepoService.server(url).repoOf(repo.getUrl().toString(), "maven") != null;
     }
 }

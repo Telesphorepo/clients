@@ -1,5 +1,6 @@
 package com.telesphorepo.gradle;
 
+import com.telesphorepo.client.ServerIdentity;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.repositories.MavenArtifactRepository;
 import org.gradle.api.component.SoftwareComponent;
@@ -34,8 +35,8 @@ final class AutoPublish {
         if (url == null || repository == null || repository.isBlank()) {
             return;
         }
-        URI base = Api.normalize(url);
-        URI target = URI.create(base + "/maven/" + repository.trim());
+        ServerIdentity server = TelesphorepoService.server(url);
+        URI target = URI.create(server.base() + "/maven/" + repository.trim());
         PluginManager plugins = project.getPluginManager();
         plugins.withPlugin("java", p -> plugins.apply("maven-publish"));
         plugins.withPlugin("java-platform", p -> plugins.apply("maven-publish"));
@@ -44,13 +45,13 @@ final class AutoPublish {
         // publish tasks of each publication and repository from live callbacks on the publishing
         // containers, so the tasks exist before the task graph is ready.
         project.getGradle().projectsEvaluated(g ->
-            plugins.withPlugin("maven-publish", p -> configure(project, base, target)));
+            plugins.withPlugin("maven-publish", p -> configure(project, server, target)));
     }
 
-    private static void configure(Project project, URI base, URI target) {
+    private static void configure(Project project, ServerIdentity server, URI target) {
         PublishingExtension publishing = project.getExtensions().getByType(PublishingExtension.class);
         boolean declared = publishing.getRepositories().withType(MavenArtifactRepository.class).stream()
-            .anyMatch(r -> TelesphorepoService.repoName(base, r.getUrl()) != null);
+            .anyMatch(r -> r.getUrl() != null && server.repoOf(r.getUrl().toString(), "maven") != null);
         if (!declared) {
             publishing.getRepositories().maven(r -> {
                 r.setName(NAME);

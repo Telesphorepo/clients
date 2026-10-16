@@ -1,6 +1,7 @@
 package com.telesphorepo.maven.extension;
 
-import com.telesphorepo.maven.client.Api;
+import com.telesphorepo.client.ClientException;
+import com.telesphorepo.client.Protocol;
 import javax.inject.Inject;
 import javax.inject.Named;
 import javax.inject.Singleton;
@@ -15,7 +16,8 @@ import org.apache.maven.project.MavenProject;
  * Mints the publish session just before maven-deploy-plugin runs, so the session's time starts
  * at the upload and not at the start of the build. The token replaces the credentials of the
  * project's deployment repository; {@link PublishAuthenticationSelector} serves the other
- * repositories the goal deploys to.
+ * repositories the goal deploys to. Maven ignores an exception of an event spy, so a failed mint
+ * removes the credentials of the repository here, and the selector stops the deploy.
  */
 @Named("telesphorepo")
 @Singleton
@@ -41,10 +43,11 @@ public class TelesphorepoEventSpy extends AbstractEventSpy {
                 state.deployStarted();
                 MavenProject project = e.getProject();
                 ArtifactRepository repo = project == null ? null : project.getDistributionManagementArtifactRepository();
-                if (repo != null) {
-                    String token = state.token(repo.getUrl());
-                    if (token != null) {
-                        repo.setAuthentication(new Authentication(Api.USERNAME, token));
+                if (repo != null && state.classify(repo.getUrl()) instanceof PublishState.Telesphorepo t) {
+                    try {
+                        repo.setAuthentication(new Authentication(Protocol.SESSION_USER, state.token(t)));
+                    } catch (ClientException ex) {
+                        repo.setAuthentication(null);
                     }
                 }
             }

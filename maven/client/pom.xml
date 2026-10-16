@@ -14,5 +14,10 @@
   <packaging>jar</packaging>
 
   <name>Telesphorepo Maven client library</name>
-  <description>Talks to the Telesphorepo publish API: device enrollment, device keys and publish sessions. JDK only.</description>
+  <description>The shared Telesphorepo client core: server identity, device enrollment, the device file and publish sessions. JDK only.</description>
+
+  <!-- The sources are the shared client core in ../../core, which the Gradle plugin compiles too. -->
+  <build>
+    <sourceDirectory>../../core/src/main/java</sourceDirectory>
+  </build>
 </project>
